@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crypto Verdict</title>
+<style>
+  :root { --bg:#0b0d10; --card:#151a20; --line:#232a33; --text:#e8edf2; --mute:#8b96a3;
+          --buy:#1fa971; --sell:#f0566b; --wait:#d6a23a; --edge:#3b82f6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:1120px; margin:0 auto; padding:24px 16px 56px; display:flex; flex-direction:column; gap:16px; }
+  h1 { font-size:21px; margin:0; }
+  h2 { font-size:16px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  .sub { color:var(--mute); font-size:13px; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button { border:0; border-radius:10px; padding:12px 22px; font-size:15px; font-weight:600; cursor:pointer; color:#fff; background:var(--buy); }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.ghost { background:var(--card); border:1px solid var(--line); color:var(--text); font-weight:500; padding:9px 14px; }
+  select, input { background:var(--card); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:9px 12px; font-size:14px; }
+  input { text-transform:uppercase; width:130px; }
+  label.mute { display:flex; align-items:center; gap:6px; }
+  .mute { color:var(--mute); font-size:13px; }
+  .progress { height:6px; background:var(--line); border-radius:4px; overflow:hidden; display:none; }
+  .progress > div { height:100%; width:0; background:var(--buy); transition:width .2s; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; min-width:0; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:860px) { .grid { grid-template-columns:1fr; } }
+  .banner { display:flex; gap:14px; align-items:flex-start; }
+  .pill { font-size:12px; font-weight:700; letter-spacing:.4px; padding:4px 10px; border-radius:999px; white-space:nowrap; }
+  .pill.edge { background:color-mix(in srgb, var(--edge) 22%, transparent); color:#9cc3ff; }
+  .pill.none { background:color-mix(in srgb, var(--wait) 22%, transparent); color:var(--wait); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-top:4px; }
+  .stat .k { font-size:12px; color:var(--mute); } .stat .v { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mute); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  td.num, th.num { text-align:right; }
+  td.coin { font-weight:600; }
+  .buy { color:var(--buy); } .sell { color:var(--sell); } .wait { color:var(--wait); } .blue { color:#9cc3ff; }
+  .plan { color:var(--mute); font-size:12px; white-space:normal; }
+  tr.chosen td { background:color-mix(in srgb, var(--edge) 10%, transparent); }
+  details summary { cursor:pointer; color:var(--mute); }
+  .err { color:var(--sell); }
+  .note { color:var(--mute); font-size:12px; line-height:1.6; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Crypto Verdict</h1>
+    <div class="sub">Every run tests 8 formulas (including BTC-based ones) on the last ~2.5 days, checks how your earlier lists actually did,
+      and uses the formula with the best success rate. You always get a top 5 BUY and top 5 SELL, each with its success %.</div>
+  </header>
+
+  <div class="bar">
+    <button id="run">Run now</button>
+    <label class="mute">Coins <select id="top"><option value="30">Top 30</option><option value="60" selected>Top 60</option><option value="100">Top 100</option></select></label>
+    <label class="mute">Horizon <select id="hz"><option value="60" selected>Next 60 min</option><option value="10">Next 10 min</option></select></label>
+    <span class="mute" id="status">Not run yet. A run takes about 30–60 seconds.</span>
+  </div>
+  <div class="progress" id="prog"><div></div></div>
+
+  <section class="card" id="verdict"><span class="mute">Press Run now. Your top 5 BUY and SELL lists appear below.</span></section>
+
+  <section class="card" id="market"><h2>Market (BTC)</h2><span class="mute">—</span></section>
+
+  <div class="grid">
+    <section class="card"><h2><span style="color:var(--buy)">●</span> Top 5 BUY</h2><div class="scroll" id="buys"><span class="mute">—</span></div></section>
+    <section class="card"><h2><span style="color:var(--sell)">●</span> Top 5 SELL</h2><div class="scroll" id="sells"><span class="mute">—</span></div></section>
+  </div>
+
+  <section class="card">
+    <h2>Formula leaderboard</h2>
+    <div class="note">Success = share of picks that moved the called way by the end of the horizon. "Past 2.5 days" comes from replaying history;
+    "Your runs" is how that formula's picks did on your earlier runs. Combined blends the two, and the top one is used.</div>
+    <div class="scroll" id="board"><span class="mute">—</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Your track record</h2>
+    <div class="note">Every list is saved in this browser. On your next run, picks whose time is up are checked against the real price,
+    and those results feed back into which formula is used and the % shown.</div>
+    <div id="record"><span class="mute">No runs saved yet.</span></div>
+    <div class="bar" style="margin-top:8px"><button class="ghost" id="clear">Clear track record</button></div>
+  </section>
+
+  <details>
+    <summary>Check one coin</summary>
+    <div class="card" style="margin-top:10px">
+      <form id="one" class="bar"><input id="coin" placeholder="WLD" autocomplete="off"><button class="ghost" type="submit">Analyze</button></form>
+      <div id="oneOut" style="margin-top:10px"></div>
+    </div>
+  </details>
+
+  <p class="note">Data: Bybit USDT perpetual futures (public). Prices track CoinSwitch futures closely but are not CoinSwitch's own feed; check a coin is listed
+  on CoinSwitch before trading. A past edge can disappear at any time. Not financial advice.</p>
+</main>
+
+<script>
+// Crypto Verdict v3 — learns from its own backtest and from your earlier lists every time it runs.
+// Each run: load ~3.5 days of 5m/15m/1h candles for the most-traded USDT perpetuals (Bybit, public),
+// replay the last ~2.5 days in 30-minute rounds, score 8 formula versions (incl. BTC-based ones),
+// blend in how each version's picks did on your earlier runs, and use the best one.
+// Always returns a top 5 BUY and top 5 SELL; each pick's % is the measured success rate for its
+// list position (shrunk toward the side average and nudged by your live results).
+// Not financial advice.
+
+const CV = (() => {
+  const BASE = "https://api.bybit.com/v5/market";
+  const IV = { "5m": ["5", 3e5], "15m": ["15", 9e5], "1h": ["60", 36e5] };
+  const STABLE = new Set(["USDC", "USDE", "FDUSD", "DAI", "TUSD", "USDD", "PYUSD", "BUSD"]);
+  const FEE = 0.10;                                   // round-trip fees, %
+  const ROUND = 18e5;                                 // replay a round every 30 minutes
+
+  // ---------- data ----------
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const json = async (url, tries = 4) => {
+    for (let a = 1; ; a++) {
+      const r = await fetch(url, { cache: "no-store" });
+      const j = await r.json().catch(() => ({ retCode: r.status, retMsg: "HTTP " + r.status }));
+      const limited = r.status === 429 || j.retCode === 10006 || /rate limit/i.test(j.retMsg || "");
+      if (limited && a < tries) { await sleep(800 * a); continue; }
+      if (j.retCode !== 0) throw new Error(j.retMsg || "Bybit error");
+      return j.result;
+    }
+  };
+  const candles = async (sym, tf, limit = 1000, extra = "") => {
+    const res = await json(`${BASE}/kline?category=linear&symbol=${sym}&interval=${IV[tf][0]}&limit=${limit}${extra}`);
+    if (!res.list?.length) throw new Error(`${sym} not found on Bybit futures`);
+    return res.list.reverse().map(k => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }));
+  };
+  async function pool(items, n, fn, onEach) {
+    let i = 0, done = 0; const out = [];
+    await Promise.all(Array.from({ length: n }, async () => {
+      while (i < items.length) { const k = i++; try { out[k] = await fn(items[k]); } catch (e) { out[k] = null; } onEach?.(++done, items.length); }
+    }));
+    return out;
+  }
+  async function tickers() {
+    const res = await json(`${BASE}/tickers?category=linear`);
+    return res.list.filter(t => t.symbol.endsWith("USDT") && !STABLE.has(t.symbol.replace(/USDT$/, "")) && +t.turnover24h > 0)
+      .map(t => ({ sym: t.symbol, turnover: +t.turnover24h, last: +t.lastPrice, chg24: +t.price24hPcnt * 100 }))
+      .sort((a, b) => b.turnover - a.turnover);
+  }
+
+  // ---------- indicators ----------
+  const ema = (xs, n) => { const k = 2 / (n + 1); let e = xs[0]; return xs.map(x => (e = x * k + e * (1 - k))); };
+  const rsi = (xs, n = 14) => {
+    let g = 0, l = 0;
+    for (let i = 1; i <= n; i++) { const d = xs[i] - xs[i - 1]; d > 0 ? g += d : l -= d; }
+    g /= n; l /= n;
+    for (let i = n + 1; i < xs.length; i++) { const d = xs[i] - xs[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
+    return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  };
+  const atr = (c, n = 14) => { let s = 0; for (let i = c.length - n; i < c.length; i++) { const b = c[i], p = c[i - 1].c; s += Math.max(b.h - b.l, Math.abs(b.h - p), Math.abs(b.l - p)); } return s / n; };
+  const swings = (c, k = 3) => {
+    const s = c.slice(-120), H = [], L = [];
+    for (let i = k; i < s.length - k; i++) {
+      const w = s.slice(i - k, i + k + 1), hs = w.map(b => b.h), ls = w.map(b => b.l);
+      if (hs.indexOf(Math.max(...hs)) === k) H.push(s[i].h);
+      if (ls.indexOf(Math.min(...ls)) === k) L.push(s[i].l);
+    }
+    return { H, L };
+  };
+  // one timeframe -> score in [-1, +1]
+  const analyse = c => {
+    const cl = c.map(b => b.c), px = cl.at(-1), e9 = ema(cl, 9), e21 = ema(cl, 21), e50 = ema(cl, 50);
+    const R = rsi(cl), A = atr(c) || px * 1e-4, { H, L } = swings(c);
+    let s = 0;
+    s += px > e9.at(-1) ? 0.2 : -0.2; s += e9.at(-1) > e21.at(-1) ? 0.15 : -0.15; s += px > e50.at(-1) ? 0.1 : -0.1;
+    s += Math.max(-0.1, Math.min(0.1, (e21.at(-1) - e21.at(-6)) / A * 0.1));
+    if (H.length >= 2 && L.length >= 2) {
+      const tol = A * 0.1, hh = H.at(-1) > H.at(-2) + tol, lh = H.at(-1) < H.at(-2) - tol, hl = L.at(-1) > L.at(-2) + tol, ll = L.at(-1) < L.at(-2) - tol;
+      if (!(hh || lh) && !(hl || ll)) {} else if (hh && hl) s += 0.3; else if (lh && ll) s -= 0.3; else if (hl || hh) s += 0.1; else s -= 0.1;
+      if (px < L.at(-1)) s -= 0.15; if (px > H.at(-1)) s += 0.15;
+    }
+    s += (R - 50) / 50 * 0.2; if (R < 30) s += 0.2; if (R > 70) s -= 0.2;
+    const v5 = c.slice(-6, -1).reduce((a, b) => a + b.v, 0) / 5, v20 = c.slice(-26, -6).reduce((a, b) => a + b.v, 0) / 20;
+    if (v5 > v20 * 1.2) s += Math.sign(cl.at(-2) - cl.at(-7)) * 0.1;
+    return { s: Math.max(-1, Math.min(1, s)), rsi: R, A, e9: e9.at(-1), e21: e21.at(-1), px };
+  };
+  const combine = (s5, s15, s1h) => {
+    const s = [s5, s15, s1h], W = [0.20, 0.35, 0.45];
+    let S = s.reduce((a, x, i) => a + x * W[i], 0);
+    const g = s.map(Math.sign); if (!g.every(x => x === g[0] && x !== 0)) S *= 0.6;
+    return S;
+  };
+  // number of bars that have closed by time t
+  const closedBy = (arr, t, len) => { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].t + len <= t) lo = m + 1; else hi = m; } return lo; };
+
+  // features of one coin at time t (only bars closed by t), plus outcomes if the future is known
+  function features(d, t) {
+    const i5 = closedBy(d.m5, t, 3e5), i15 = closedBy(d.m15, t, 9e5), i1 = closedBy(d.h1, t, 36e5);
+    if (i5 < 200 || i15 < 200 || i1 < 200) return null;
+    const a = d.m5.slice(i5 - 200, i5), b = d.m15.slice(i15 - 200, i15), h = d.h1.slice(i1 - 200, i1);
+    const T5 = analyse(a), T15 = analyse(b), T1 = analyse(h), p0 = a.at(-1).c;
+    const f = { s5: T5.s, s15: T15.s, s1h: T1.s, S: combine(T5.s, T15.s, T1.s), rsi1h: T1.rsi, p0,
+      ret4h: (p0 - h.at(-5).c) / h.at(-5).c * 100, e9_15: T15.e9, e21_15: T15.e21, A15: T15.A, A1h: T1.A, stretch5: (p0 - T5.e9) / T5.A };
+    const at = k => d.m5[i5 + k - 1] && d.m5[i5 + k - 1].t === t + (k - 1) * 3e5 ? d.m5[i5 + k - 1].c : null;  // close k bars later
+    const p10 = at(2), p60 = at(12);
+    if (p10) f.r10 = (p10 - p0) / p0 * 100;
+    if (p60) f.r60 = (p60 - p0) / p0 * 100;
+    return f;
+  }
+
+  // ---------- formula versions (each returns this round's buys / sells) ----------
+  const top = (rows, key, n = 5, dir = 1) => [...rows].sort((a, b) => dir * (key(b) - key(a))).slice(0, n);
+  const STRATS = [
+    { id: "current", name: "Trend score (original)", fn: rows => ({ buys: top(rows.filter(r => r.S > 0), r => r.S), sells: top(rows.filter(r => r.S < 0), r => r.S, 5, -1) }) },
+    { id: "best1", name: "Single best each side", fn: rows => ({ buys: top(rows.filter(r => r.S > 0), r => r.S, 1), sells: top(rows.filter(r => r.S < 0), r => r.S, 1, -1) }) },
+    { id: "strong", name: "Only very strong scores", fn: rows => ({ buys: top(rows.filter(r => r.S > 0.7), r => r.S), sells: top(rows.filter(r => r.S < -0.7), r => r.S, 5, -1) }) },
+    { id: "calm", name: "Trend, skip overbought/oversold", fn: rows => ({ buys: top(rows.filter(r => r.S > 0 && r.rsi1h < 65), r => r.S), sells: top(rows.filter(r => r.S < 0 && r.rsi1h > 35), r => r.S, 5, -1) }) },
+    { id: "dips", name: "Buy dips in 1h uptrend", fn: rows => ({ buys: top(rows.filter(r => r.s1h > 0.4 && r.s5 < 0), r => r.s1h), sells: top(rows.filter(r => r.s1h < -0.4 && r.s5 > 0), r => r.s1h, 5, -1) }) },
+    { id: "relbtc", name: "Strongest vs BTC (4h)", fn: (rows, B) => { const k = r => r.ret4h - B.ret4h; return { buys: top(rows, k), sells: top(rows, k, 5, -1) }; } },
+    { id: "followbtc", name: "Follow BTC trend", fn: (rows, B) => B.S > 0 ? { buys: top(rows.filter(r => r.S > 0), r => r.S) } : { sells: top(rows.filter(r => r.S < 0), r => r.S, 5, -1) } },
+    { id: "opposite", name: "Opposite of trend score", fn: rows => ({ buys: top(rows, r => -r.S), sells: top(rows, r => -r.S, 5, -1) }) },
+  ];
+
+  // ---------- replay: how has each version done lately? ----------
+  async function replay(data, horizon, onProgress) {
+    const key = horizon === 10 ? "r10" : "r60";
+    const btc = data.BTCUSDT, syms = Object.keys(data).filter(s => s !== "BTCUSDT");
+    const lastBar = btc.m5.at(-1).t;
+    const start = Math.ceil((btc.m5[0].t + 205 * 3e5) / ROUND) * ROUND;
+    const end = lastBar - (horizon + 5) * 6e4;
+    const times = []; for (let t = start; t <= end; t += ROUND) times.push(t);
+    const per = STRATS.map(() => []);               // per strategy: per-round results
+    const rankHits = STRATS.map(() => ({ BUY: [0, 1, 2, 3, 4].map(() => [0, 0]), SELL: [0, 1, 2, 3, 4].map(() => [0, 0]) }));
+    let btcSame = 0, btcN = 0;
+    for (let k = 0; k < times.length; k++) {
+      const t = times[k], B = features(btc, t);
+      if (!B || B[key] == null) continue;
+      const rows = []; for (const s of syms) { const f = features(data[s], t); if (f && f[key] != null) { f.sym = s; rows.push(f); } }
+      if (rows.length < 20) continue;
+      btcN++; if (Math.sign(B.S) === Math.sign(B[key])) btcSame++;
+      STRATS.forEach((st, i) => {
+        const { buys = [], sells = [] } = st.fn(rows, B);
+        const picks = [...buys.map(r => ({ d: 1, r })), ...sells.map(r => ({ d: -1, r }))];
+        if (!picks.length) return;
+        const g = picks.map(p => p.d * p.r[key]);
+        // success by list position (1st..5th) on each side, so each pick gets its own measured %
+        buys.forEach((r, j) => { rankHits[i].BUY[j][1]++; if (r[key] > 0) rankHits[i].BUY[j][0]++; });
+        sells.forEach((r, j) => { rankHits[i].SELL[j][1]++; if (r[key] < 0) rankHits[i].SELL[j][0]++; });
+        per[i].push({ k, n: g.length, hit: g.filter(x => x > 0).length / g.length, ret: g.reduce((a, x) => a + x, 0) / g.length,
+          bHit: buys.length ? buys.filter(r => r[key] > 0).length / buys.length : null, sHit: sells.length ? sells.filter(r => r[key] < 0).length / sells.length : null });
+      });
+      onProgress?.(k + 1, times.length);
+      if (k % 8 === 0) await sleep(0);
+    }
+    const mean = xs => xs.reduce((a, x) => a + x, 0) / xs.length;
+    const stats = STRATS.map((st, i) => {
+      const R = per[i]; if (R.length < 20) return { ...st, rounds: R.length, picks: 0, edge: false };
+      const hits = R.map(r => r.hit), m = mean(hits), sd = Math.sqrt(mean(hits.map(h => (h - m) ** 2)));
+      const lower = m - 1.96 * sd / Math.sqrt(R.length);       // rounds, not picks, so correlated picks don't inflate confidence
+      const half = Math.floor(R.length / 2), h1 = mean(hits.slice(0, half)), h2 = mean(hits.slice(half));
+      const net = mean(R.map(r => r.ret)) - FEE;
+      const bh = R.filter(r => r.bHit != null), sh = R.filter(r => r.sHit != null);
+      return { ...st, rounds: R.length, picks: R.reduce((a, r) => a + r.n, 0), hit: m, lower, firstHalf: h1, secondHalf: h2, net,
+        buyHit: bh.length ? mean(bh.map(r => r.bHit)) : null, sellHit: sh.length ? mean(sh.map(r => r.sHit)) : null,
+        rankHits: rankHits[i], edge: lower > 0.5 && net > 0 && h1 > 0.5 && h2 > 0.5 };
+    });
+    return { stats, rounds: btcN, from: times[0], to: times.at(-1), btcTrendHeld: btcN ? btcSame / btcN : null };
+  }
+
+  // ---------- load everything ----------
+  async function load(top = 60, onProgress) {
+    const tk = await tickers(), uni = tk.slice(0, top);
+    if (!uni.find(c => c.sym === "BTCUSDT")) uni.push(tk.find(c => c.sym === "BTCUSDT"));
+    const data = {};
+    await pool(uni, 4, async c => {
+      const [a, b, h] = await Promise.all([candles(c.sym, "5m", 1000), candles(c.sym, "15m", 600), candles(c.sym, "1h", 300)]);
+      data[c.sym] = { m5: a, m15: b, h1: h };
+    }, onProgress);
+    return { data, tick: Object.fromEntries(tk.map(t => [t.sym, t])) };
+  }
+
+  // ---------- the full run ----------
+  // memory = your own scored picks per version: { id: { BUY: [right, total], SELL: [right, total] } }
+  const REPLAY_WEIGHT = 150;                         // replay counts like 150 picks; your live picks add on top
+  async function scan({ top = 60, horizon = 60, onProgress, memory = {} } = {}) {
+    const started = new Date();
+    onProgress?.("Loading candles", 0, 1);
+    const { data, tick } = await load(top, (d, n) => onProgress?.("Loading candles", d, n));
+    if (!data.BTCUSDT) throw new Error("Could not load BTC data");
+    const bt = await replay(data, horizon, (d, n) => onProgress?.("Replaying past rounds", d, n));
+    // learn: blend each version's replay success with how its picks did for you on earlier runs
+    bt.stats.forEach(s => {
+      const m = memory[s.id] || {}, L = (m.BUY || [0, 0]).map((x, i) => x + ((m.SELL || [0, 0])[i]));
+      s.liveRight = L[0]; s.liveTotal = L[1];
+      s.score = s.hit == null ? 0 : (s.hit * REPLAY_WEIGHT + L[0]) / (REPLAY_WEIGHT + L[1]);
+      s.confidence = s.edge && s.score > 0.53 ? "High" : s.score >= 0.52 && s.firstHalf > 0.5 && s.secondHalf > 0.5 ? "Medium" : "Low";
+    });
+    const ranked = [...bt.stats].filter(s => s.rounds >= 20).sort((a, b) => (b.score - a.score) || (b.lower - a.lower));
+    const use = ranked[0], chosen = use;
+    // success % for each list position, shrunk toward the side average (small samples) and nudged by your live results
+    const probFor = (side, j, ver = use) => {
+      const base = (side === "BUY" ? ver.buyHit : ver.sellHit) ?? ver.hit ?? 0.5;
+      const [h, n] = (ver.rankHits && ver.rankHits[side][j]) || [0, 0];
+      let p = (h + 20 * base) / (n + 20);
+      const mem = (memory[ver.id] || {})[side];
+      if (mem && mem[1]) p += (mem[0] / mem[1] - base) * mem[1] / (mem[1] + REPLAY_WEIGHT);
+      return Math.round(Math.max(0.01, Math.min(0.99, p)) * 100);
+    };
+
+    // live picks with the chosen version, on bars closed now
+    const now = Math.floor(Date.now() / 3e5) * 3e5;
+    const B = features(data.BTCUSDT, now);
+    const rows = [];
+    for (const s of Object.keys(data)) { if (s === "BTCUSDT") continue; const f = features(data[s], now); if (f) { f.sym = s; rows.push(f); } }
+    // picks from the best version; if it gives fewer than 5 on a side, fill up from the original trend score
+    const cur = bt.stats.find(s => s.id === "current");
+    const own = use.fn(rows, B), base = cur.fn(rows, B);
+    const fill = side => {
+      const key = side === "BUY" ? "buys" : "sells", list = (own[key] || []).map((r, j) => ({ r, j, ver: use }));
+      (base[key] || []).forEach((r, j) => { if (list.length < 5 && !list.some(x => x.r.sym === r.sym)) list.push({ r, j, ver: cur }); });
+      // still short (e.g. every coin is rising): take the weakest / strongest remaining coins by trend score
+      [...rows].sort((a, b) => side === "BUY" ? b.S - a.S : a.S - b.S)
+        .forEach(r => { if (list.length < 5 && !list.some(x => x.r.sym === r.sym)) list.push({ r, j: 4, ver: cur }); });
+      return list;
+    };
+    const buys = fill("BUY"), sells = fill("SELL");
+    const fmt = x => +x.toPrecision(5);
+    const plan = (r, side) => {
+      const dir = side === "BUY" ? 1 : -1, zA = Math.min(r.e9_15, r.e21_15), zB = Math.max(r.e9_15, r.e21_15);
+      const entry = side === "BUY" ? Math.min(r.p0, zB) : Math.max(r.p0, zA), stop = entry - dir * 1.2 * r.A15, target = entry + dir * 2.4 * r.A15;
+      return { entry: fmt(entry), stop: fmt(stop), target: fmt(target), chasing: dir * r.stretch5 > 1.5 };
+    };
+    const mk = side => ({ r, j, ver }) => ({ sym: r.sym, coin: r.sym.replace(/USDT$/, ""), side, rank: j + 1, version: ver.id, versionName: ver.name,
+      price: tick[r.sym]?.last ?? r.p0, chg24: tick[r.sym]?.chg24 ?? 0, prob: probFor(side, j, ver), ...plan(r, side) });
+    const breadth = rows.filter(r => r.S > 0).length / rows.length;
+    return {
+      started, finished: new Date(), horizon, coins: rows.length,
+      chosen, use, leaderboard: ranked, replay: { rounds: bt.rounds, from: bt.from, to: bt.to },
+      btc: { price: tick.BTCUSDT?.last, chg24: tick.BTCUSDT?.chg24, score: B ? B.S : null, trendHeld: bt.btcTrendHeld,
+             chg1h: B ? (data.BTCUSDT.h1.at(-1).c - data.BTCUSDT.h1.at(-2).c) / data.BTCUSDT.h1.at(-2).c * 100 : null },
+      breadth, buys: buys.map(mk("BUY")).sort((a, b) => b.prob - a.prob), sells: sells.map(mk("SELL")).sort((a, b) => b.prob - a.prob), data,
+    };
+  }
+
+  // score saved picks whose horizon has passed (for the track record)
+  async function scoreSaved(entries, data) {
+    const out = [];
+    for (const e of entries) {
+      const due = e.at + e.horizon * 6e4;
+      if (e.scored || Date.now() < due + 6e4) { out.push(e); continue; }
+      const tMin = Math.floor(due / 6e4) * 6e4;
+      for (const p of e.picks) {
+        if (p.result) continue;
+        try {
+          const res = await json(`${BASE}/kline?category=linear&symbol=${p.sym}&interval=1&start=${tMin}&limit=2`);
+          const bar = (res.list || []).map(k => ({ t: +k[0], o: +k[1] })).find(b => b.t === tMin);
+          if (bar) { p.after = bar.o; const mv = (bar.o - p.price) / p.price * (p.side === "BUY" ? 1 : -1); p.result = mv > 0 ? "Right" : mv < 0 ? "Wrong" : "Flat"; }
+        } catch (err) {}
+      }
+      e.scored = e.picks.every(p => p.result);
+      out.push(e);
+    }
+    return out;
+  }
+
+  // single coin, current-formula view (for "Check one coin")
+  async function evaluate(coin) {
+    const sym = coin.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/USDT$/, "") + "USDT";
+    const [a, b, h] = await Promise.all([candles(sym, "5m", 400), candles(sym, "15m", 400), candles(sym, "1h", 300)]);
+    const f = features({ m5: a, m15: b, h1: h }, Math.floor(Date.now() / 3e5) * 3e5);
+    if (!f) throw new Error(`Not enough history for ${sym}`);
+    return { sym, coin: sym.replace(/USDT$/, ""), score: +f.S.toFixed(2), side: f.S >= 0 ? "BUY" : "SELL", price: f.p0,
+      timeframes: [["5m", f.s5], ["15m", f.s15], ["1h", f.s1h]].map(([tf, s]) => ({ tf, score: +s.toFixed(2) })) };
+  }
+
+  return { scan, replay, load, features, evaluate, scoreSaved, STRATS, json, candles, combine };
+})();
+
+
+const $ = id => document.getElementById(id);
+const fmt = x => x == null ? "—" : +(+x).toPrecision(5);
+const pc = (x, d = 1) => x == null ? "—" : (x * 100).toFixed(d) + "%";
+const sg = (x, d = 2) => x == null ? "—" : (x >= 0 ? "+" : "") + x.toFixed(d) + "%";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+
+function picksTable(rows, horizon) {
+  if (!rows.length) return '<span class="mute">No coins on this side right now.</span>';
+  return `<table><tr><th>#</th><th>Coin</th><th>Success (${horizon}m)</th><th class="num">Price</th><th class="num">24h</th></tr>
+    ${rows.map((r, i) => {
+      const cls = r.prob >= 55 ? (r.side === "BUY" ? "buy" : "sell") : r.prob >= 50 ? "" : "wait";
+      return `<tr><td class="mute">${i + 1}</td><td class="coin">${esc(r.coin)}</td><td class="${cls}"><b>${r.side} ${r.prob}%</b></td>
+        <td class="num">${fmt(r.price)}</td><td class="num ${r.chg24 >= 0 ? "buy" : "sell"}">${sg(r.chg24, 1)}</td></tr>
+        <tr><td></td><td colspan="4" class="plan">${r.chasing ? "Don't chase, wait for the pullback. " : ""}Entry ~${r.entry}, stop ${r.stop}, target ${r.target}${r.version !== r.bestId ? " · from original trend score" : ""}</td></tr>`;
+    }).join("")}</table>`;
+}
+
+// your scored picks per formula and side -> what the engine learns from
+function memoryFrom(runs) {
+  const m = {};
+  runs.forEach(r => r.picks.forEach(p => {
+    if (!p.result || p.result === "Flat" || !p.version) return;
+    const v = (m[p.version] ||= { BUY: [0, 0], SELL: [0, 0] });
+    v[p.side][1]++; if (p.result === "Right") v[p.side][0]++;
+  }));
+  return m;
+}
+
+function renderRecord() {
+  const runs = store.get("cv-runs", []);
+  if (!runs.length) { $("record").innerHTML = '<span class="mute">No runs saved yet.</span>'; return; }
+  const scored = runs.flatMap(r => r.picks.filter(p => p.result));
+  const right = xs => xs.filter(p => p.result === "Right").length;
+  const withP = scored.filter(p => p.prob != null);
+  const predicted = withP.length ? withP.reduce((a, p) => a + p.prob, 0) / withP.length / 100 : null;
+  const B = scored.filter(p => p.side === "BUY"), S = scored.filter(p => p.side === "SELL");
+  $("record").innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="k">Picks checked</div><div class="v">${scored.length}</div></div>
+      <div class="stat"><div class="k">Actually right</div><div class="v">${scored.length ? pc(right(scored) / scored.length) : "—"}</div></div>
+      <div class="stat"><div class="k">Page predicted (avg)</div><div class="v blue">${predicted == null ? "—" : pc(predicted)}</div></div>
+      <div class="stat"><div class="k">BUY picks right</div><div class="v buy">${B.length ? pc(right(B) / B.length) + ` <span class="mute">(${B.length})</span>` : "—"}</div></div>
+      <div class="stat"><div class="k">SELL picks right</div><div class="v sell">${S.length ? pc(right(S) / S.length) + ` <span class="mute">(${S.length})</span>` : "—"}</div></div>
+    </div>
+    <div class="note">If "Actually right" stays well below "Page predicted", the % shown is too optimistic; the page corrects for this automatically as results build up.</div>
+    <div class="scroll" style="margin-top:10px"><table><tr><th>Run</th><th>Horizon</th><th>Formula used</th><th class="num">Right</th><th>Picks</th></tr>
+    ${runs.slice(0, 20).map(r => { const s = r.picks.filter(p => p.result), ok = right(s);
+      const list = r.picks.map(p => `<span class="${p.result === "Right" ? "buy" : p.result === "Wrong" ? "sell" : "mute"}">${esc((p.coin || p.sym.replace(/USDT$/, "")))}</span>`).join(" ");
+      return `<tr><td>${new Date(r.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>${r.horizon}m</td>
+        <td>${esc(r.versionName || r.version)}</td>
+        <td class="num">${!r.picks.length ? '<span class="mute">—</span>' : s.length ? `${ok} / ${s.length}` : '<span class="mute">waiting</span>'}</td>
+        <td style="white-space:normal">${list}</td></tr>`; }).join("")}
+    </table></div>`;
+}
+
+async function run() {
+  const btn = $("run"), prog = $("prog"), bar = prog.firstElementChild;
+  btn.disabled = true; prog.style.display = "block"; bar.style.width = "0";
+  const horizon = +$("hz").value;
+  try {
+    // 1. check earlier lists first, so this run learns from them
+    $("status").textContent = "Checking your earlier lists…";
+    let runs = await CV.scoreSaved(store.get("cv-runs", []));
+    store.set("cv-runs", runs); renderRecord();
+    const memory = memoryFrom(runs.filter(r => r.horizon === horizon));
+
+    // 2. scan with that memory
+    const r = await CV.scan({ top: +$("top").value, horizon, memory,
+      onProgress: (stage, d, n) => { bar.style.width = (n ? d / n * 100 : 0) + "%"; $("status").textContent = `${stage}… ${n > 1 ? d + " / " + n : ""}`; } });
+    const u = r.use;
+    r.buys.forEach(p => p.bestId = u.id); r.sells.forEach(p => p.bestId = u.id);
+
+    const learned = u.liveTotal ? ` It has also been checked on ${u.liveTotal} of your earlier picks (${pc(u.liveRight / u.liveTotal)} right).` : "";
+    $("verdict").innerHTML = `
+      <div class="banner"><span class="pill ${u.confidence === "Low" ? "none" : "edge"}">CONFIDENCE: ${u.confidence.toUpperCase()}</span><div>
+        <b>Best formula now: "${esc(u.name)}"</b>, right ${pc(u.score)} of the time over the next ${horizon} minutes (combined).
+        In the last ~2.5 days of replay it was right ${pc(u.hit)}.${learned}
+        <div class="note">Around 50% is close to a coin flip; the further above 50%, the better. Size your trades to match.</div></div></div>`;
+
+    const b = r.btc, trend = b.score == null ? "—" : b.score > 0.15 ? '<span class="buy">Up</span>' : b.score < -0.15 ? '<span class="sell">Down</span>' : '<span class="wait">Flat</span>';
+    $("market").innerHTML = `<h2>Market (BTC)</h2><div class="stats">
+      <div class="stat"><div class="k">BTC price</div><div class="v">${fmt(b.price)}</div></div>
+      <div class="stat"><div class="k">BTC last hour</div><div class="v ${b.chg1h >= 0 ? "buy" : "sell"}">${sg(b.chg1h)}</div></div>
+      <div class="stat"><div class="k">BTC trend now</div><div class="v">${trend}</div></div>
+      <div class="stat"><div class="k">BTC trend held next ${horizon}m</div><div class="v">${pc(b.trendHeld, 0)}</div></div>
+      <div class="stat"><div class="k">Coins trending up</div><div class="v">${pc(r.breadth, 0)}</div></div>
+    </div><div class="note">"Trend held" is how often BTC kept going the same way over the next ${horizon} minutes in the replay. The "Follow BTC trend" formula is used only when it scores best.</div>`;
+
+    $("buys").innerHTML = picksTable(r.buys, horizon);
+    $("sells").innerHTML = picksTable(r.sells, horizon);
+
+    $("board").innerHTML = `<table><tr><th>Formula</th><th class="num">Past 2.5 days</th><th class="num">Your runs</th><th class="num">Combined</th>
+      <th class="num">After fees / pick</th><th>Confidence</th><th></th></tr>
+      ${r.leaderboard.map(s => `<tr class="${s.id === u.id ? "chosen" : ""}"><td>${esc(s.name)}</td>
+        <td class="num">${pc(s.hit)}</td><td class="num">${s.liveTotal ? `${s.liveRight} / ${s.liveTotal}` : '<span class="mute">—</span>'}</td>
+        <td class="num ${s.score > 0.52 ? "buy" : s.score < 0.48 ? "sell" : ""}"><b>${pc(s.score)}</b></td>
+        <td class="num ${s.net > 0 ? "buy" : "sell"}">${sg(s.net, 3)}</td><td>${s.confidence}</td>
+        <td>${s.id === u.id ? '<span class="blue">In use</span>' : ""}</td></tr>`).join("")}</table>`;
+
+    // 3. save this list for learning next time
+    runs.unshift({ at: Date.now(), horizon, version: u.id, versionName: u.name,
+      picks: [...r.buys, ...r.sells].map(p => ({ sym: p.sym, coin: p.coin, side: p.side, price: p.price, prob: p.prob, version: p.version })) });
+    store.set("cv-runs", runs.slice(0, 300));
+    renderRecord();
+
+    const secs = ((r.finished - r.started) / 1000).toFixed(0);
+    $("status").textContent = `Data as of ${r.finished.toLocaleTimeString()} · ${r.coins} coins · replayed ${r.replay.rounds} rounds · ${secs}s`;
+  } catch (e) {
+    $("status").innerHTML = `<span class="err">Run failed: ${esc(e.message)}. Check your internet connection and press Run now again.</span>`;
+  } finally {
+    btn.disabled = false; setTimeout(() => prog.style.display = "none", 600);
+  }
+}
+
+$("run").addEventListener("click", run);
+$("clear").addEventListener("click", () => { store.set("cv-runs", []); renderRecord(); });
+for (const id of ["top", "hz"]) {
+  const v = store.get("cv-" + id, null); if (v) $(id).value = v;
+  $(id).addEventListener("change", e => store.set("cv-" + id, e.target.value));
+}
+renderRecord();
+
+$("one").addEventListener("submit", async e => {
+  e.preventDefault();
+  const coin = $("coin").value.trim(); if (!coin) return;
+  $("oneOut").textContent = "Analyzing…";
+  try {
+    const r = await CV.evaluate(coin);
+    $("oneOut").innerHTML = `<div class="${r.side === "BUY" ? "buy" : "sell"}" style="font-size:17px"><b>${esc(r.coin)}: trend score ${r.score > 0 ? "+" : ""}${r.score}</b></div>
+      <div class="mute">Price ${fmt(r.price)} · ${r.timeframes.map(t => `${t.tf} ${t.score > 0 ? "+" : ""}${t.score}`).join(" · ")}</div>
+      <div class="note">This is the original trend score only. Use Run now to see whether any formula currently has an edge.</div>`;
+  } catch (err) { $("oneOut").innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+});
+</script>
+</body>
+</html>
